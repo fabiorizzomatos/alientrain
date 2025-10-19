@@ -15,7 +15,7 @@ func _physics_process(delta):
 		queue_free()
 
 func _on_hit(area):
-	# Verifica se acertou um inimigo
-	if area.get_parent() is Node2D and area.get_parent().name.begins_with("Enemy"):
-		area.get_parent().queue_free()
+	var enemy = area.get_parent()
+	if enemy and enemy.has_method("take_damage"):
+		enemy.take_damage(1.0, global_position)
 	queue_free()

@@ -17,7 +17,8 @@ var out_of_fuel: bool = false
 var enemy_level: float = 0.0
 var spawn_timer: Timer
 var menu_canvas: CanvasLayer
-var research_panel: Panel
+var research_panel: Control
+var shoot_sound: AudioStreamPlayer2D
 
 func _ready() -> void:
 	var track := get_node("../Track")
@@ -32,16 +33,16 @@ func _ready() -> void:
 	L = max(1.0, path.curve.get_baked_length())
 	if track.has_signal("curve_updated"):
 		track.connect("curve_updated", Callable(self, "_on_curve_updated"))
-	# Não iniciar physics e spawn ainda
-	set_physics_process(false)
-	set_process(false)
+	set_physics_process(true)
+	set_process(true)
 	spawn_timer = Timer.new()
 	add_child(spawn_timer)
 	spawn_timer.wait_time = 3.0
 	spawn_timer.connect("timeout", Callable(self, "_spawn_enemy"))
-	# Aumentar tamanho da janela
-	get_window().size = Vector2(1600, 900)
-	# Mudar cursor do mouse para crosshair maior
+	spawn_timer.start()
+	# Ajusta tamanho da janela inicial (pedido: 1600x900)
+	get_window().size = Vector2i(1600, 900)
+	# Cursor do mouse (crosshair discreto)
 	var img = Image.create(32, 32, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
 	for i in range(32):
@@ -51,8 +52,16 @@ func _ready() -> void:
 		img.set_pixel(16, i, Color.BLACK)
 	var tex = ImageTexture.create_from_image(img)
 	Input.set_custom_mouse_cursor(tex)
-	# Criar menu inicial
-	_create_main_menu()
+	# Redimensionamento responsivo
+	if not get_window().size_changed.is_connected(_on_window_resized):
+		get_window().size_changed.connect(_on_window_resized)
+	# Configurar som de tiro
+	shoot_sound = AudioStreamPlayer2D.new()
+	add_child(shoot_sound)
+	# Tenta carregar som de tiro
+	var shoot_audio = load("res://sounds/shoot.wav")
+	if shoot_audio:
+		shoot_sound.stream = shoot_audio
 	# Conecta reinício do HUD
 	var hud := get_node_or_null("../HUD")
 	if hud and hud.has_signal("restart_pressed"):
@@ -63,8 +72,13 @@ func _ready() -> void:
 	# Mapear ação de tiro
 	if not InputMap.has_action("shoot"):
 		InputMap.add_action("shoot")
-		var mb := InputEventMouseButton.new(); mb.button_index = MOUSE_BUTTON_LEFT; mb.pressed = true; InputMap.action_add_event("shoot", mb)
-		var sp := InputEventKey.new(); sp.keycode = KEY_SPACE; InputMap.action_add_event("shoot", sp)
+		var mb := InputEventMouseButton.new()
+		mb.button_index = MOUSE_BUTTON_LEFT
+		mb.pressed = true
+		InputMap.action_add_event("shoot", mb)
+		var sp := InputEventKey.new()
+		sp.keycode = KEY_SPACE
+		InputMap.action_add_event("shoot", sp)
 
 func _physics_process(delta: float) -> void:
 	if L <= 1.0:
@@ -237,7 +251,7 @@ func _ensure_collision(follow: PathFollow2D, size: Vector2) -> void:
 		collision_shape.shape = rect_shape
 		area.add_child(collision_shape)
 		area.collision_layer = 1  # Trem
-		area.collision_mask = 2    # Inimigos
+		area.collision_mask = 2	# Inimigos
 
 func _process(_delta: float) -> void:
 	# Mirar canhão no cursor e disparar
@@ -264,33 +278,93 @@ func _spawn_enemy() -> void:
 func _create_main_menu() -> void:
 	menu_canvas = CanvasLayer.new()
 	add_child(menu_canvas)
-	var bg = ColorRect.new()
-	bg.color = Color(0, 0, 0, 0.8)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	menu_canvas.add_child(bg)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	var center = CenterContainer.new()
-	menu_canvas.add_child(center)
+	# Dim de fundo
+	var dim := ColorRect.new()
+	dim.name = "Dim"
+	dim.color = Color(0, 0, 0, 0.35)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	menu_canvas.add_child(dim)
+	# Centro
+	var center := CenterContainer.new(); center.name = "Center"
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	var vbox = VBoxContainer.new()
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	center.add_child(vbox)
-	var title = Label.new()
+	menu_canvas.add_child(center)
+	# Painel responsivo
+	var panel := PanelContainer.new(); panel.name = "Panel"
+	center.add_child(panel)
+	var pad := MarginContainer.new(); pad.name = "Pad"
+	panel.add_child(pad)
+	var ui := VBoxContainer.new(); ui.name = "VBox"
+	ui.alignment = BoxContainer.ALIGNMENT_CENTER
+	pad.add_child(ui)
+	# Título e botões
+	var title := Label.new(); title.name = "Title"
 	title.text = "Alien Train"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 48)
-	vbox.add_child(title)
-	var start_button = Button.new()
-	start_button.text = "Iniciar Ride"
+	ui.add_child(title)
+	var start_button := Button.new(); start_button.name = "Start"
+	start_button.text = "Start Ride"
 	start_button.connect("pressed", Callable(self, "_start_ride"))
-	vbox.add_child(start_button)
-	var research_button = Button.new()
-	research_button.text = "Pesquisa"
+	ui.add_child(start_button)
+	var research_button := Button.new(); research_button.name = "Research"
+	research_button.text = "Research"
 	research_button.connect("pressed", Callable(self, "_show_research"))
-	vbox.add_child(research_button)
+	ui.add_child(research_button)
+	start_button.grab_focus()
+	_update_menu_layout()
+
+func _on_window_resized() -> void:
+	_update_menu_layout()
+
+func _update_menu_layout() -> void:
+	if menu_canvas == null:
+		return
+	var center: CenterContainer = menu_canvas.get_node_or_null("Center") as CenterContainer
+	var panel: PanelContainer = null
+	if center:
+		panel = center.get_node_or_null("Panel") as PanelContainer
+	var pad: MarginContainer = null
+	if panel:
+		pad = panel.get_node_or_null("Pad") as MarginContainer
+	var ui: VBoxContainer = null
+	if pad:
+		ui = pad.get_node_or_null("VBox") as VBoxContainer
+	var title: Label = null
+	var start_b: Button = null
+	var research_b: Button = null
+	if ui:
+		title = ui.get_node_or_null("Title") as Label
+		start_b = ui.get_node_or_null("Start") as Button
+		research_b = ui.get_node_or_null("Research") as Button
+	var view_size: Vector2 = get_viewport().size
+	var h: float = view_size.y
+	var scale: float = clamp(h / 270.0, 1.0, 3.0)
+	# Painel estilizado
+	if panel:
+		var sb: StyleBoxFlat = StyleBoxFlat.new()
+		sb.bg_color = Color(0.06, 0.08, 0.12, 0.9)
+		sb.corner_radius_top_left = int(10 * scale)
+		sb.corner_radius_top_right = int(10 * scale)
+		sb.corner_radius_bottom_left = int(10 * scale)
+		sb.corner_radius_bottom_right = int(10 * scale)
+		panel.add_theme_stylebox_override("panel", sb)
+	# Padding
+	if pad:
+		var m: int = int(12 * scale)
+		pad.add_theme_constant_override("margin_left", m)
+		pad.add_theme_constant_override("margin_top", m)
+		pad.add_theme_constant_override("margin_right", m)
+		pad.add_theme_constant_override("margin_bottom", m)
+	# Fontes
+	var title_size: int = int(24 * scale)
+	var btn_size: int = int(14 * scale)
+	if title: title.add_theme_font_size_override("font_size", title_size)
+	if start_b: start_b.add_theme_font_size_override("font_size", btn_size)
+	if research_b: research_b.add_theme_font_size_override("font_size", btn_size)
 
 func _start_ride() -> void:
-	menu_canvas.queue_free()
+	if menu_canvas:
+		menu_canvas.queue_free()
 	set_physics_process(true)
 	set_process(true)
 	spawn_timer.start()
@@ -298,9 +372,12 @@ func _start_ride() -> void:
 func _show_research() -> void:
 	if research_panel == null:
 		var research_scene = load("res://scenes/Research.tscn")
-		research_panel = research_scene.instantiate()
-		menu_canvas.add_child(research_panel)
-		research_panel.connect("research_selected", Callable(self, "_on_research_selected"))
+		if research_scene:
+			research_panel = research_scene.instantiate()
+			if menu_canvas:
+				menu_canvas.add_child(research_panel)
+			if research_panel.has_signal("research_selected"):
+				research_panel.connect("research_selected", Callable(self, "_on_research_selected"))
 
 func _on_research_selected(research_type: String):
 	if research_type == "speed":
@@ -330,3 +407,11 @@ func _shoot() -> void:
 				bullet.direction = direction
 				bullet.position = cannon.global_position + direction * 20
 				get_parent().add_child(bullet)
+				# Toca som de tiro (cria nova instância para evitar sobreposição)
+				if shoot_sound and shoot_sound.stream:
+					var sound_instance = AudioStreamPlayer2D.new()
+					sound_instance.stream = shoot_sound.stream
+					sound_instance.position = cannon.global_position
+					get_parent().add_child(sound_instance)
+					sound_instance.play()
+					sound_instance.finished.connect(sound_instance.queue_free)
