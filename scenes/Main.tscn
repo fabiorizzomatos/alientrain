@@ -1,0 +1,164 @@
+[gd_scene load_steps=8 format=3 uid="uid://bioxhcg4ceh55"]
+
+[ext_resource type="Script" uid="uid://g3vbj0f085jv" path="res://scripts/TrainController.gd" id="1"]
+[ext_resource type="Shader" uid="uid://dj4fx6yljmddx" path="res://shaders/crt.gdshader" id="2"]
+[ext_resource type="PackedScene" uid="uid://da88bv4kf6gv7" path="res://scenes/Track.tscn" id="3"]
+[ext_resource type="Script" uid="uid://cxr6cllpygfdt" path="res://scripts/HUD.gd" id="4"]
+[ext_resource type="Script" uid="uid://bneyb4ddabj0s" path="res://scripts/CameraController.gd" id="5"]
+
+[sub_resource type="Environment" id="1"]
+glow_enabled = true
+glow_intensity = 0.7
+glow_strength = 1.2
+
+[sub_resource type="ShaderMaterial" id="2"]
+shader = ExtResource("2")
+shader_parameter/scanline_strength = 0.15
+shader_parameter/vignette_strength = 0.35
+shader_parameter/aberration = 0.002
+shader_parameter/noise_strength = 0.05
+
+[node name="Main" type="Node2D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("1")
+
+[node name="Track" parent="." instance=ExtResource("3")]
+
+[node name="TrainController" type="Node" parent="."]
+script = ExtResource("1")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+script = ExtResource("5")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+script = ExtResource("4")
+
+[node name="MarginContainer" type="MarginContainer" parent="HUD"]
+visible = false
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 8.0
+offset_bottom = 8.0
+mouse_filter = 2
+
+[node name="VBox" type="VBoxContainer" parent="HUD/MarginContainer"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Speed" type="Label" parent="HUD/MarginContainer/VBox"]
+layout_mode = 2
+text = "speed: 0"
+
+[node name="SpeedBar" type="ProgressBar" parent="HUD/MarginContainer/VBox"]
+custom_minimum_size = Vector2(200, 10)
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+max_value = 600.0
+
+[node name="FuelText" type="Label" parent="HUD/MarginContainer/VBox"]
+layout_mode = 2
+text = "fuel"
+
+[node name="Fuel" type="ProgressBar" parent="HUD/MarginContainer/VBox"]
+custom_minimum_size = Vector2(180, 12)
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+value = 100.0
+
+[node name="Message" type="Label" parent="HUD"]
+offset_left = 8.0
+offset_top = 36.0
+
+[node name="Box" type="PanelContainer" parent="HUD"]
+offset_left = 6.0
+offset_top = 6.0
+offset_right = 150.0
+offset_bottom = 64.0
+
+[node name="UIMargin" type="MarginContainer" parent="HUD/Box"]
+layout_mode = 2
+
+[node name="UI" type="VBoxContainer" parent="HUD/Box/UIMargin"]
+custom_minimum_size = Vector2(120, 54)
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="SpeedRow" type="HBoxContainer" parent="HUD/Box/UIMargin/UI"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="SpeedLabel" type="Label" parent="HUD/Box/UIMargin/UI/SpeedRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "speed"
+
+[node name="SpeedValue" type="Label" parent="HUD/Box/UIMargin/UI/SpeedRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "0"
+
+[node name="SpeedBar" type="ProgressBar" parent="HUD/Box/UIMargin/UI"]
+custom_minimum_size = Vector2(120, 6)
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+max_value = 600.0
+show_percentage = false
+
+[node name="FuelRow" type="HBoxContainer" parent="HUD/Box/UIMargin/UI"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="FuelLabel" type="Label" parent="HUD/Box/UIMargin/UI/FuelRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "fuel"
+
+[node name="Fuel" type="ProgressBar" parent="HUD/Box/UIMargin/UI"]
+custom_minimum_size = Vector2(120, 6)
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+value = 100.0
+show_percentage = false
+
+[node name="EndPanel" type="PanelContainer" parent="HUD"]
+visible = false
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -120.0
+offset_top = -42.0
+offset_right = 120.0
+offset_bottom = 42.0
+
+[node name="EndMargin" type="MarginContainer" parent="HUD/EndPanel"]
+layout_mode = 2
+
+[node name="EndVBox" type="VBoxContainer" parent="HUD/EndPanel/EndMargin"]
+custom_minimum_size = Vector2(220, 80)
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="EndText" type="Label" parent="HUD/EndPanel/EndMargin/EndVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Out of fuel!"
+horizontal_alignment = 1
+
+[node name="RestartButton" type="Button" parent="HUD/EndPanel/EndMargin/EndVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "restart ride"
+
+[node name="CRT" type="ColorRect" parent="."]
+material = SubResource("2")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
