@@ -16,6 +16,8 @@ var fuel: float
 var out_of_fuel: bool = false
 var enemy_level: float = 0.0
 var spawn_timer: Timer
+var menu_canvas: CanvasLayer
+var research_panel: Panel
 
 func _ready() -> void:
 	var track := get_node("../Track")
@@ -30,19 +32,18 @@ func _ready() -> void:
 	L = max(1.0, path.curve.get_baked_length())
 	if track.has_signal("curve_updated"):
 		track.connect("curve_updated", Callable(self, "_on_curve_updated"))
-	set_physics_process(true)
-	set_process(true)  # Para atualizar o canhão
+	# Não iniciar physics e spawn ainda
+	set_physics_process(false)
+	set_process(false)
 	spawn_timer = Timer.new()
 	add_child(spawn_timer)
-	spawn_timer.wait_time = 3.0  # Spawn a cada 3 segundos
+	spawn_timer.wait_time = 3.0
 	spawn_timer.connect("timeout", Callable(self, "_spawn_enemy"))
-	spawn_timer.start()
 	# Aumentar tamanho da janela
 	get_window().size = Vector2(1600, 900)
 	# Mudar cursor do mouse para crosshair maior
 	var img = Image.create(32, 32, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))  # Transparente
-	# Desenhar cruz preta
+	img.fill(Color(0, 0, 0, 0))
 	for i in range(32):
 		img.set_pixel(i, 15, Color.BLACK)
 		img.set_pixel(i, 16, Color.BLACK)
@@ -50,26 +51,34 @@ func _ready() -> void:
 		img.set_pixel(16, i, Color.BLACK)
 	var tex = ImageTexture.create_from_image(img)
 	Input.set_custom_mouse_cursor(tex)
-	# Adicionar ação para atirar
+	# Criar menu inicial
+	_create_main_menu()
+	# Conecta reinício do HUD
+	var hud := get_node_or_null("../HUD")
+	if hud and hud.has_signal("restart_pressed"):
+		hud.connect("restart_pressed", Callable(self, "_on_restart"))
+	if not InputMap.has_action("restart_ride"):
+		InputMap.add_action("restart_ride")
+		var ev := InputEventKey.new(); ev.keycode = KEY_R; InputMap.action_add_event("restart_ride", ev)
+	# Mapear ação de tiro
 	if not InputMap.has_action("shoot"):
 		InputMap.add_action("shoot")
-		var ev = InputEventMouseButton.new()
-		ev.button_index = MOUSE_BUTTON_LEFT
-		InputMap.action_add_event("shoot", ev)
+		var mb := InputEventMouseButton.new(); mb.button_index = MOUSE_BUTTON_LEFT; mb.pressed = true; InputMap.action_add_event("shoot", mb)
+		var sp := InputEventKey.new(); sp.keycode = KEY_SPACE; InputMap.action_add_event("shoot", sp)
 
 func _physics_process(delta: float) -> void:
 	if L <= 1.0:
 		return
-	var accel := 0.0
+	# Aceleração por input
+	var accel: float = 0.0
 	if Input.is_action_pressed("ui_right"):
 		accel += 1.0
 	if Input.is_action_pressed("ui_left"):
 		accel -= 1.0
 	speed = clamp(speed + accel * 200.0 * delta, 0.0, max_speed)
-	enemy_level = min(1.0, loco.progress / 5000.0)  # Upgrade level baseado na distância
 
-	# Consumir combustível por distância real percorrida
-	var step := speed * delta
+	# Consumo de combustível proporcional à velocidade
+	var step: float = speed * delta
 	if fuel > 0.0 and step > 0.0:
 		var speed_ratio := speed / max_speed
 		var mult := 1.0 + fuel_speed_factor * speed_ratio * speed_ratio
@@ -79,69 +88,44 @@ func _physics_process(delta: float) -> void:
 			needed = fuel
 		fuel -= needed
 	else:
-		# sem combustível: desacelera até parar
 		step = 0.0
 		speed = max(0.0, speed - 60.0 * delta)
 		if fuel <= 0.0 and not out_of_fuel:
 			out_of_fuel = true
-			var hud := get_node_or_null("../HUD")
-			if hud and hud.has_method("show_end_dialog"):
-				hud.show_end_dialog()
+			var hud_end := get_node_or_null("../HUD")
+			if hud_end and hud_end.has_method("show_end_dialog"):
+				hud_end.show_end_dialog()
 
-	# Pedir mais trilhos à frente (com previsão)
+	# Estender trilho à frente
 	var track_node := get_node("../Track")
 	if track_node and track_node.has_method("ensure_length"):
-		var predict := loco.progress + step + lookahead
+		var predict: float = loco.progress + step + lookahead
 		track_node.ensure_length(predict)
-	# Avançar no trilho (sem loop)
+
+	# Avançar
 	loco.loop = false
 	L = max(L, path.curve.get_baked_length())
 	loco.progress = min(loco.progress + step, L - 1.0)
 
-	var p := loco.progress
+	# Posicionar vagões
+	var p: float = loco.progress
 	for i in cars.size():
 		p = max(0.0, p - spacing)
 		cars[i].progress = p
 
-		# Atualiza HUD se existir
-		var hud := get_node_or_null("../HUD")
-		if hud and hud.has_method("set_values"):
-			hud.call_deferred("set_values", speed, fuel, fuel_max)
+	# HUD
+	var hud := get_node_or_null("../HUD")
+	if hud and hud.has_method("set_values"):
+		hud.call_deferred("set_values", speed, fuel, fuel_max)
 
-		# Camera follow simples
-		var cam := get_node_or_null("../Camera2D")
-		if cam and cam is Camera2D:
-			(cam as Camera2D).global_position = loco.global_position
-		# Tecla R para reiniciar quando sem combustível
-		if out_of_fuel and Input.is_action_just_pressed("restart_ride"):
-			reset_run()
+	# Câmera segue
+	var cam := get_node_or_null("../Camera2D")
+	if cam and cam is Camera2D:
+		(cam as Camera2D).global_position = loco.global_position
 
-func _process(_delta: float) -> void:
-	if cars.size() > 0 and cars[0].has_node("Cannon"):
-		var cannon = cars[0].get_node("Cannon")
-		var barrel = cannon.get_node_or_null("Barrel")
-		if barrel:
-			var camera = get_viewport().get_camera_2d()
-			if camera:
-				var world_mouse = camera.get_global_mouse_position()
-				var cannon_pos = cannon.global_position
-				var angle = (world_mouse - cannon_pos).angle() - cannon.global_rotation
-				barrel.rotation = angle
-
-func _input(event: InputEvent) -> void:
-	if Input.is_action_just_pressed("shoot"):
-		_shoot()
-
-func _notification(what):
-	if what == NOTIFICATION_READY:
-		# Conecta reinício do HUD
-		var hud := get_node_or_null("../HUD")
-		if hud and hud.has_signal("restart_pressed"):
-			hud.connect("restart_pressed", Callable(self, "_on_restart"))
-		# Mapeia tecla R caso não exista
-		if not InputMap.has_action("restart_ride"):
-			InputMap.add_action("restart_ride")
-			var ev := InputEventKey.new(); ev.keycode = KEY_R; InputMap.action_add_event("restart_ride", ev)
+	# Reiniciar com R quando sem combustível
+	if out_of_fuel and Input.is_action_just_pressed("restart_ride"):
+		reset_run()
 
 func _on_curve_updated(total_length: float) -> void:
 	L = max(1.0, total_length)
@@ -255,6 +239,17 @@ func _ensure_collision(follow: PathFollow2D, size: Vector2) -> void:
 		area.collision_layer = 1  # Trem
 		area.collision_mask = 2    # Inimigos
 
+func _process(_delta: float) -> void:
+	# Mirar canhão no cursor e disparar
+	if cars.size() > 0 and cars[0].has_node("Cannon"):
+		var cannon: Node2D = cars[0].get_node("Cannon")
+		var barrel: Node2D = cannon.get_node_or_null("Barrel")
+		if barrel:
+			var mouse_world: Vector2 = cannon.get_global_mouse_position()
+			barrel.global_rotation = (mouse_world - cannon.global_position).angle()
+		if Input.is_action_just_pressed("shoot"):
+			_shoot()
+
 func _spawn_enemy() -> void:
 	var enemy_scene = load("res://scenes/Enemy.tscn")  # Assumindo que a cena existe
 	if enemy_scene:
@@ -266,8 +261,57 @@ func _spawn_enemy() -> void:
 		enemy.connect("enemy_collided", Callable(self, "_on_enemy_collided"))
 		get_parent().add_child(enemy)  # Adicionar ao root
 
+func _create_main_menu() -> void:
+	menu_canvas = CanvasLayer.new()
+	add_child(menu_canvas)
+	var bg = ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.8)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	menu_canvas.add_child(bg)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var center = CenterContainer.new()
+	menu_canvas.add_child(center)
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var vbox = VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	center.add_child(vbox)
+	var title = Label.new()
+	title.text = "Alien Train"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 48)
+	vbox.add_child(title)
+	var start_button = Button.new()
+	start_button.text = "Iniciar Ride"
+	start_button.connect("pressed", Callable(self, "_start_ride"))
+	vbox.add_child(start_button)
+	var research_button = Button.new()
+	research_button.text = "Pesquisa"
+	research_button.connect("pressed", Callable(self, "_show_research"))
+	vbox.add_child(research_button)
+
+func _start_ride() -> void:
+	menu_canvas.queue_free()
+	set_physics_process(true)
+	set_process(true)
+	spawn_timer.start()
+
+func _show_research() -> void:
+	if research_panel == null:
+		var research_scene = load("res://scenes/Research.tscn")
+		research_panel = research_scene.instantiate()
+		menu_canvas.add_child(research_panel)
+		research_panel.connect("research_selected", Callable(self, "_on_research_selected"))
+
+func _on_research_selected(research_type: String):
+	if research_type == "speed":
+		_research_speed()
+
+func _research_speed() -> void:
+	max_speed += 100.0
+	print("Velocidade máxima aumentada para ", max_speed)
+
 func _on_enemy_collided() -> void:
-	fuel = max(0.0, fuel - 10.0)  # Reduz combustível em 10 ao colidir com inimigo
+	fuel = max(0.0, fuel - 10.0)
 	if fuel <= 0.0 and not out_of_fuel:
 		out_of_fuel = true
 		var hud := get_node_or_null("../HUD")
