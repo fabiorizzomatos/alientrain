@@ -1,5 +1,7 @@
 extends Node2D
 
+signal enemy_collided
+
 @export var type: String = "a"
 @export var level: float = 0.0
 @export var speed: float = 50.0
@@ -10,14 +12,18 @@ extends Node2D
 var _path: Path2D
 var _curve: Curve2D
 var _sprite: Sprite2D
+var _area: Area2D
+var lateral_offset: float = 0.0  # Offset lateral ao trilho
 
 func _ready() -> void:
 	_path = get_node_or_null(track_path) as Path2D
 	if _path:
 		_curve = _path.curve
 	_sprite = get_node_or_null("Sprite2D")
+	lateral_offset = randf_range(-80.0, 80.0)  # Offset lateral aleatório
 	_ensure_placeholder_texture()
 	_fit_sprite_to_height()
+	_setup_collision()
 	apply_level()
 
 func apply_level() -> void:
@@ -35,10 +41,13 @@ func _physics_process(delta: float) -> void:
 	if progress > L:
 		progress = L
 	var pos: Vector2 = _curve.sample_baked(progress)
-	global_position = pos
+	# Calcular offset perpendicular ao trilho
+	var tangent: Vector2 = _curve.sample_baked(min(progress + 5.0, L)) - pos
+	tangent = tangent.normalized()
+	var perpendicular: Vector2 = Vector2(-tangent.y, tangent.x) * lateral_offset
+	global_position = pos + perpendicular
 	# Rotaciona pela tangente
-	var pos_ahead: Vector2 = _curve.sample_baked(min(progress + 6.0, L))
-	rotation = (pos_ahead - pos).angle()
+	rotation = tangent.angle()
 
 	# Se ficar muito para trás do trem, remove
 	var loco: PathFollow2D = _path.get_node_or_null("Locomotive") as PathFollow2D
@@ -75,3 +84,23 @@ func _fit_sprite_to_height() -> void:
 		return
 	var s: float = clamp(target_height / sz.y, 0.02, 4.0)
 	_sprite.scale = Vector2(s, s)
+
+func _setup_collision() -> void:
+	_area = Area2D.new()
+	add_child(_area)
+	var collision_shape = CollisionShape2D.new()
+	var rect_shape = RectangleShape2D.new()
+	rect_shape.size = Vector2(target_height, target_height)  # Ajuste conforme necessário
+	collision_shape.shape = rect_shape
+	_area.add_child(collision_shape)
+	_area.collision_layer = 2  # Camada para inimigos
+	_area.collision_mask = 1 | 4   # Colidir com trem e balas
+	_area.connect("area_entered", Callable(self, "_on_area_entered"))
+
+func _on_area_entered(area: Area2D) -> void:
+	# Verifica se colidiu com o trem
+	if area.collision_layer == 1:  # Trem
+		emit_signal("enemy_collided")
+		queue_free()  # Remove o inimigo após colisão
+	elif area.collision_layer == 4:  # Bala
+		queue_free()  # Remove o inimigo se acertado por bala
